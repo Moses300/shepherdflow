@@ -385,6 +385,101 @@ function RoleGuard({ role, allowed, children }) {
 }
 
 // ════════════════════════════════════════════════════════
+//  RESET PASSWORD FORM  (shown when user clicks email link)
+//  Supabase puts #access_token=...&type=recovery in the URL
+// ════════════════════════════════════════════════════════
+function ResetPasswordForm({ token, onDone }) {
+  const [password, setPassword]   = useState("");
+  const [confirm, setConfirm]     = useState("");
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState("");
+  const [success, setSuccess]     = useState(false);
+
+  const handleReset = async () => {
+    if (!password || !confirm) return setError("Please fill in both fields.");
+    if (password.length < 6) return setError("Password must be at least 6 characters.");
+    if (password !== confirm) return setError("Passwords do not match. Please try again.");
+    setLoading(true); setError("");
+    try {
+      const res = await auth.updatePassword(token, password);
+      if (res.error) {
+        setError("Reset failed: " + (res.error.message || "Please request a new reset link."));
+        setLoading(false); return;
+      }
+      setSuccess(true);
+      setTimeout(() => onDone(), 2500); // redirect to login after 2.5s
+    } catch (e) {
+      setError("Connection error. Please try again.");
+    }
+    setLoading(false);
+  };
+
+  if (success) {
+    return (
+      <div className="forgot-screen">
+        <div className="forgot-card">
+          <div className="success-tick">✅</div>
+          <div className="forgot-title">Password Updated!</div>
+          <p className="forgot-sub">Your password has been changed successfully.<br />Redirecting you to sign in...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="forgot-screen">
+      <div className="forgot-card">
+        <div className="forgot-icon-wrap">🔑</div>
+        <div className="forgot-title">Set New Password</div>
+        <p className="forgot-sub" style={{ marginBottom: 24 }}>
+          Choose a strong new password for your account.
+        </p>
+
+        {error && <div className="alert alert-error" style={{ textAlign: "left" }}>⚠️ {error}</div>}
+
+        <div className="form-group" style={{ textAlign: "left", marginBottom: 14 }}>
+          <label className="form-label">New Password</label>
+          <input
+            className="form-input"
+            type="password"
+            placeholder="Min. 6 characters"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div className="form-group" style={{ textAlign: "left", marginBottom: 20 }}>
+          <label className="form-label">Confirm New Password</label>
+          <input
+            className="form-input"
+            type="password"
+            placeholder="Type password again"
+            value={confirm}
+            onChange={e => setConfirm(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleReset()}
+          />
+          {/* Live match indicator */}
+          {confirm.length > 0 && (
+            <div style={{ fontSize: "0.75rem", marginTop: 4, color: password === confirm ? "var(--olive)" : "var(--red)", fontWeight: 600 }}>
+              {password === confirm ? "✓ Passwords match" : "✗ Passwords do not match"}
+            </div>
+          )}
+        </div>
+
+        <button
+          className="btn btn-primary"
+          style={{ width: "100%", justifyContent: "center" }}
+          onClick={handleReset}
+          disabled={loading}
+        >
+          {loading ? "⏳ Updating..." : "🔐 Update Password"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
 //  FORGOT PASSWORD SCREEN  (3 steps)
 // ════════════════════════════════════════════════════════
 function ForgotPasswordScreen({ onBack }) {
@@ -507,19 +602,44 @@ function AuthScreen({ onAuth }) {
   }
 
   const handleSignIn = async () => {
-    if (!form.email || !form.password) return setError("Email and password required.");
-    setLoading(true); setError("");
-    const res = await auth.signIn(form.email, form.password);
-    if (res.error) { setError(res.error.message || "Sign in failed."); setLoading(false); return; }
-    const db = makeDb(res.access_token);
-    const profile = await db.get("profiles", `id=eq.${res.user.id}&select=*`);
-    const orgMember = await db.get("organization_members", `user_id=eq.${res.user.id}&select=*,organizations(*)`);
-    if (!orgMember || orgMember.length === 0) {
-      setError("No church organization found for this account. Please sign up first.");
-      setLoading(false); return;
+    if (!form.email || !form.password) return setError("Please enter your email and password.");
+    // Basic email format check
+    if (!form.email.includes("@") || !form.email.includes(".")) {
+      return setError("Please enter a valid email address.");
     }
-    const om = orgMember[0];
-    onAuth({ user: res.user, token: res.access_token, org: om.organizations, role: om.role, profile: profile[0] });
+    setLoading(true); setError("");
+    try {
+      const res = await auth.signIn(form.email, form.password);
+      // ── Clear, friendly error messages ──
+      if (res.error) {
+        setLoading(false);
+        const msg = res.error.message?.toLowerCase() || "";
+        if (msg.includes("invalid login") || msg.includes("invalid credentials") || msg.includes("wrong password") || msg.includes("invalid password")) {
+          return setError("Incorrect email or password. Please try again.");
+        }
+        if (msg.includes("email not confirmed")) {
+          return setError("Please confirm your email address first. Check your inbox.");
+        }
+        if (msg.includes("too many requests") || msg.includes("rate limit")) {
+          return setError("Too many attempts. Please wait a few minutes and try again.");
+        }
+        if (msg.includes("user not found") || msg.includes("no user")) {
+          return setError("No account found with this email. Please sign up first.");
+        }
+        return setError("Incorrect email or password. Please try again.");
+      }
+      const db = makeDb(res.access_token);
+      const profile = await db.get("profiles", `id=eq.${res.user.id}&select=*`);
+      const orgMember = await db.get("organization_members", `user_id=eq.${res.user.id}&select=*,organizations(*)`);
+      if (!orgMember || orgMember.length === 0) {
+        setLoading(false);
+        return setError("No church organization found for this account. Please sign up first.");
+      }
+      const om = orgMember[0];
+      onAuth({ user: res.user, token: res.access_token, org: om.organizations, role: om.role, profile: profile[0] });
+    } catch (e) {
+      setError("Connection error. Please check your internet and try again.");
+    }
     setLoading(false);
   };
 
@@ -1169,12 +1289,29 @@ const NAV_ALL = [
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [session, setSession] = useState(null);
-  const [page, setPage] = useState("dashboard");
-  const [members, setMembers] = useState([]);
-  const [tags, setTags] = useState({});
-  const [loading, setLoading] = useState(false);
+  const [session, setSession]         = useState(null);
+  const [page, setPage]               = useState("dashboard");
+  const [members, setMembers]         = useState([]);
+  const [tags, setTags]               = useState({});
+  const [loading, setLoading]         = useState(false);
+  const [resetToken, setResetToken]   = useState(null); // ← NEW: recovery token from URL
 
+  // ── Detect password reset token in URL hash ──
+  // Supabase puts: #access_token=xxx&type=recovery in the URL after clicking reset link
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash && hash.includes("type=recovery")) {
+      const params = new URLSearchParams(hash.replace("#", ""));
+      const token = params.get("access_token");
+      if (token) {
+        setResetToken(token);
+        // Clean the URL so token doesn't stay visible
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
+  }, []);
+
+  // ── Restore session from localStorage ──
   useEffect(() => {
     try {
       const saved = localStorage.getItem("sf_session");
@@ -1218,6 +1355,19 @@ export default function App() {
     setTags({});
     try { localStorage.removeItem("sf_session"); } catch {}
   };
+
+  // ── If reset token found in URL → show set new password screen ──
+  if (resetToken) {
+    return (
+      <>
+        <style>{style}</style>
+        <ResetPasswordForm
+          token={resetToken}
+          onDone={() => setResetToken(null)}
+        />
+      </>
+    );
+  }
 
   if (!session) return (
     <>
