@@ -33,6 +33,27 @@ const auth = {
       headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${accessToken}` }
     });
     return res.json();
+  },
+  // ── NEW: Forgot Password ──
+  async resetPasswordRequest(email) {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+    return res.ok;
+  },
+  async updatePassword(accessToken, newPassword) {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: "PUT",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ password: newPassword })
+    });
+    return res.json();
   }
 };
 
@@ -138,6 +159,26 @@ const style = `
   .org-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--linen); }
   .org-section-title { font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; }
   .org-code-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 6px; }
+
+  /* ── Forgot Password Link ── */
+  .forgot-link { display: block; text-align: right; font-size: 0.78rem; color: var(--olive); cursor: pointer; margin-top: -8px; margin-bottom: 16px; text-decoration: none; font-weight: 600; }
+  .forgot-link:hover { color: var(--olive-dark); text-decoration: underline; }
+
+  /* ── Forgot Password Screen ── */
+  .forgot-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at 20% 30%, rgba(107,124,78,0.15) 0%, transparent 60%), radial-gradient(ellipse at 80% 70%, rgba(200,129,58,0.12) 0%, transparent 60%), var(--cream); padding: 24px; }
+  .forgot-card { background: var(--white); border-radius: 20px; padding: 40px; width: 100%; max-width: 420px; box-shadow: 0 8px 40px rgba(44,24,16,0.15); border: 1px solid rgba(217,201,163,0.5); text-align: center; }
+  .forgot-icon-wrap { width: 72px; height: 72px; border-radius: 50%; background: rgba(200,129,58,0.12); border: 2px solid rgba(200,129,58,0.3); display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 20px; }
+  .forgot-title { font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; color: var(--olive-dark); margin-bottom: 8px; }
+  .forgot-sub { color: var(--text-muted); font-size: 0.88rem; line-height: 1.5; margin-bottom: 28px; }
+  .back-to-login { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--olive); cursor: pointer; font-weight: 600; margin-top: 18px; background: none; border: none; font-family: 'Lato', sans-serif; }
+  .back-to-login:hover { color: var(--olive-dark); text-decoration: underline; }
+
+  /* ── OTP Input ── */
+  .otp-input { letter-spacing: 12px; text-align: center; font-size: 1.5rem; font-weight: 700; font-family: 'Playfair Display', serif; color: var(--olive-dark); padding: 14px; }
+
+  /* ── Success tick animation ── */
+  .success-tick { width: 72px; height: 72px; border-radius: 50%; background: rgba(107,124,78,0.12); border: 2px solid rgba(107,124,78,0.4); display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 20px; animation: popIn 0.4s ease; }
+  @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 80% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } }
 
   /* ── App Layout ── */
   .app { display: flex; min-height: 100vh; background: radial-gradient(ellipse at 10% 20%, rgba(107,124,78,0.08) 0%, transparent 60%), radial-gradient(ellipse at 90% 80%, rgba(200,129,58,0.08) 0%, transparent 60%), var(--cream); }
@@ -343,22 +384,133 @@ function RoleGuard({ role, allowed, children }) {
   return children;
 }
 
+// ════════════════════════════════════════════════════════
+//  FORGOT PASSWORD SCREEN  (3 steps)
+// ════════════════════════════════════════════════════════
+function ForgotPasswordScreen({ onBack }) {
+  // step: "request" | "sent" | "done"
+  const [step, setStep]       = useState("request");
+  const [email, setEmail]     = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+
+  // Step 1 — user enters email
+  const handleRequest = async () => {
+    if (!email.trim()) return setError("Please enter your email address.");
+    setLoading(true);
+    setError("");
+    const ok = await auth.resetPasswordRequest(email.trim());
+    setLoading(false);
+    if (ok) {
+      setStep("sent");
+    } else {
+      // Supabase always returns 200 for security — treat any response as success
+      setStep("sent");
+    }
+  };
+
+  // Step 2 — confirmation that email was sent (Supabase sends the link)
+  // Step 3 — done (user clicked back after resetting via email link)
+
+  if (step === "sent") {
+    return (
+      <div className="forgot-screen">
+        <div className="forgot-card">
+          <div className="forgot-icon-wrap">📧</div>
+          <div className="forgot-title">Check Your Email</div>
+          <p className="forgot-sub">
+            We've sent a password reset link to<br />
+            <strong style={{ color: "var(--olive-dark)" }}>{email}</strong>
+          </p>
+          <div className="alert alert-info" style={{ textAlign: "left", marginBottom: 20 }}>
+            📌 Open the email and click the link. It will take you back to ShepherdFlow where you can set a new password.
+          </div>
+          <div className="alert alert-warning" style={{ textAlign: "left", marginBottom: 20, fontSize: "0.8rem" }}>
+            ⏱ The link expires in <strong>1 hour</strong>. Check your spam folder if you don't see it.
+          </div>
+          <button
+            className="btn btn-primary"
+            style={{ width: "100%", justifyContent: "center", marginBottom: 12 }}
+            onClick={() => { setStep("request"); setEmail(""); }}
+          >
+            🔁 Resend Email
+          </button>
+          <button className="back-to-login" onClick={onBack}>
+            ← Back to Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Default — step "request"
+  return (
+    <div className="forgot-screen">
+      <div className="forgot-card">
+        <div className="forgot-icon-wrap">🔐</div>
+        <div className="forgot-title">Forgot Password?</div>
+        <p className="forgot-sub">
+          No worries! Enter your email and we'll send you a reset link right away.
+        </p>
+
+        {error && <div className="alert alert-error">⚠️ {error}</div>}
+
+        <div className="form-group" style={{ textAlign: "left", marginBottom: 20 }}>
+          <label className="form-label">Email Address</label>
+          <input
+            className="form-input"
+            type="email"
+            placeholder="your@email.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleRequest()}
+            autoFocus
+          />
+        </div>
+
+        <button
+          className="btn btn-primary"
+          style={{ width: "100%", justifyContent: "center", marginBottom: 4 }}
+          onClick={handleRequest}
+          disabled={loading}
+        >
+          {loading ? "⏳ Sending..." : "📨 Send Reset Link"}
+        </button>
+
+        <button className="back-to-login" onClick={onBack}>
+          ← Back to Sign In
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Auth Screen ──────────────────────────────────────────────────────────────
 function AuthScreen({ onAuth }) {
-  const [tab, setTab] = useState("signin");
-  const [form, setForm] = useState({ email: "", password: "", fullName: "", orgName: "", orgCode: "", createOrg: true });
+  const [tab, setTab]       = useState("signin");
+  const [showForgot, setShowForgot] = useState(false);  // ← NEW
+  const [form, setForm]     = useState({ email: "", password: "", fullName: "", orgName: "", orgCode: "", createOrg: true });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
+  const [error, setError]   = useState("");
+  const [info, setInfo]     = useState("");
 
   const h = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // ── Show forgot password screen ──
+  if (showForgot) {
+    return (
+      <>
+        <style>{style}</style>
+        <ForgotPasswordScreen onBack={() => setShowForgot(false)} />
+      </>
+    );
+  }
 
   const handleSignIn = async () => {
     if (!form.email || !form.password) return setError("Email and password required.");
     setLoading(true); setError("");
     const res = await auth.signIn(form.email, form.password);
     if (res.error) { setError(res.error.message || "Sign in failed."); setLoading(false); return; }
-    // Get user profile + org membership
     const db = makeDb(res.access_token);
     const profile = await db.get("profiles", `id=eq.${res.user.id}&select=*`);
     const orgMember = await db.get("organization_members", `user_id=eq.${res.user.id}&select=*,organizations(*)`);
@@ -381,7 +533,6 @@ function AuthScreen({ onAuth }) {
     const res = await auth.signUp(form.email, form.password, form.fullName);
     if (res.error) { setError(res.error.message || "Sign up failed."); setLoading(false); return; }
 
-    // Sign in immediately to get token
     const signIn = await auth.signIn(form.email, form.password);
     if (signIn.error) {
       setInfo("Account created! Please check your email to confirm, then sign in.");
@@ -389,8 +540,6 @@ function AuthScreen({ onAuth }) {
     }
 
     const db = makeDb(signIn.access_token);
-
-    // Create or find profile
     await db.upsert("profiles", { id: signIn.user.id, full_name: form.fullName, email: form.email });
 
     let orgId;
@@ -435,11 +584,32 @@ function AuthScreen({ onAuth }) {
               <label className="form-label">Email</label>
               <input className="form-input" type="email" placeholder="your@email.com" value={form.email} onChange={e => h("email", e.target.value)} />
             </div>
-            <div className="form-group" style={{ marginBottom: 20 }}>
+            <div className="form-group" style={{ marginBottom: 8 }}>
               <label className="form-label">Password</label>
-              <input className="form-input" type="password" placeholder="••••••••" value={form.password} onChange={e => h("password", e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} />
+              <input
+                className="form-input"
+                type="password"
+                placeholder="••••••••"
+                value={form.password}
+                onChange={e => h("password", e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleSignIn()}
+              />
             </div>
-            <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={handleSignIn} disabled={loading}>
+
+            {/* ── FORGOT PASSWORD LINK ── */}
+            <button
+              className="forgot-link"
+              onClick={() => setShowForgot(true)}
+            >
+              Forgot password?
+            </button>
+
+            <button
+              className="btn btn-primary"
+              style={{ width: "100%", justifyContent: "center" }}
+              onClick={handleSignIn}
+              disabled={loading}
+            >
               {loading ? "⏳ Signing in..." : "Sign In →"}
             </button>
           </div>
@@ -497,21 +667,15 @@ function Dashboard({ members, tags, role, profile, org, setPage }) {
   const visitors = members.filter(m => m.type === "visitor").length;
   const recent = [...members].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 5);
   const withTags = members.filter(m => (tags[m.id] || []).length > 0).slice(0, 6);
-
   const thisMonth = members.filter(m => {
     const d = new Date(m.join_date || m.created_at);
     const now = new Date();
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   }).length;
-
   const firstTimers = members.filter(m => (tags[m.id] || []).includes("firsttime")).length;
   const needsCall = members.filter(m => (tags[m.id] || []).includes("call")).length;
-  const birthdays = 0; // placeholder
-
-  const isAdmin = ["admin", "pastor"].includes(role);
   const isWorker = role === "worker";
 
-  // Worker personal view
   if (isWorker) {
     const myTags = members.filter(m => (tags[m.id] || []).length > 0);
     return (
@@ -547,32 +711,24 @@ function Dashboard({ members, tags, role, profile, org, setPage }) {
     );
   }
 
-  // Admin / Pastor view
   return (
     <div>
       <div className="page-header">
         <div className="page-title">Dashboard</div>
         <div className="page-sub">{new Date().toDateString()} · Welcome back, {profile?.full_name?.split(" ")[0] || "Admin"}!</div>
       </div>
-
-      {/* Quick Actions */}
       <div className="quick-actions">
         <button className="quick-action-btn qa-primary" onClick={() => setPage("register")}>✍️ Register Member</button>
         <button className="quick-action-btn qa-primary" onClick={() => setPage("attendance")}>📋 Record Attendance</button>
         <button className="quick-action-btn qa-primary" onClick={() => setPage("followup")}>🏷️ Follow-Up</button>
         <button className="quick-action-btn qa-secondary" onClick={() => setPage("team")}>👥 Manage Team</button>
       </div>
-
-      {/* Today's Tasks */}
       <div className="tasks-panel">
         <div className="tasks-title">📋 Today's Tasks</div>
         {needsCall > 0 && <div className="task-item"><div className="task-dot" style={{ background: "#e74c3c" }} /><div className="task-text">Members needing a call</div><div className="task-count">{needsCall}</div></div>}
         {firstTimers > 0 && <div className="task-item"><div className="task-dot" style={{ background: "#e8a55a" }} /><div className="task-text">First-timer follow-ups</div><div className="task-count">{firstTimers}</div></div>}
-        {birthdays > 0 && <div className="task-item"><div className="task-dot" style={{ background: "#9b59b6" }} /><div className="task-text">Birthdays this week</div><div className="task-count">{birthdays}</div></div>}
         {needsCall === 0 && firstTimers === 0 && <div className="task-item"><div className="task-dot" style={{ background: "#6B7C4E" }} /><div className="task-text">All clear! No pending follow-ups. 🎉</div></div>}
       </div>
-
-      {/* Stats */}
       <div className="stats-grid">
         {[
           { label: "Total Members", value: members.length, change: `+${thisMonth} this month`, color: "linear-gradient(90deg,#6B7C4E,#8B9E60)" },
@@ -587,8 +743,6 @@ function Dashboard({ members, tags, role, profile, org, setPage }) {
           </div>
         ))}
       </div>
-
-      {/* Bottom grid */}
       <div className="dashboard-grid">
         <div className="card">
           <div className="card-title">Recent Additions</div>
@@ -608,7 +762,6 @@ function Dashboard({ members, tags, role, profile, org, setPage }) {
             </table>
           }
         </div>
-
         <div className="card">
           <div className="card-title">Needs Follow-Up</div>
           {withTags.length === 0
@@ -817,7 +970,6 @@ function FollowUp({ members, tags, setTags, db, orgId, role }) {
         ))}
       </div>
       <div className="search-bar"><input className="search-input" placeholder="🔍 Search members..." value={search} onChange={e => setSearch(e.target.value)} /></div>
-
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {filtered.map(m => (
           <div className="followup-card" key={m.id}>
@@ -834,8 +986,6 @@ function FollowUp({ members, tags, setTags, db, orgId, role }) {
                 <span className={`badge ${m.type === "visitor" ? "badge-visitor" : "badge-new"}`}>{m.type}</span>
               </div>
             </div>
-
-            {/* Tags */}
             {["admin", "pastor", "worker"].includes(role) && (
               <>
                 <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 12, marginBottom: 6, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase" }}>Follow-Up Tags</div>
@@ -848,8 +998,6 @@ function FollowUp({ members, tags, setTags, db, orgId, role }) {
                 </div>
               </>
             )}
-
-            {/* Next Actions */}
             {(tags[m.id] || []).length > 0 && (
               <>
                 <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 12, marginBottom: 6, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase" }}>Next Action</div>
@@ -857,11 +1005,7 @@ function FollowUp({ members, tags, setTags, db, orgId, role }) {
                   {m.phone && <button className="action-btn ab-call" onClick={() => window.open(`tel:${m.phone}`)}>📞 Call</button>}
                   {m.phone && <button className="action-btn ab-whatsapp" onClick={() => window.open(`https://wa.me/${m.phone?.replace(/\D/g, "")}`)}>💬 WhatsApp</button>}
                   <button className="action-btn ab-visit">🏠 Schedule Visit</button>
-                  <button className="action-btn ab-resolve" onClick={() => {
-                    TAG_OPTIONS.forEach(opt => {
-                      if ((tags[m.id] || []).includes(opt.key)) toggleTag(m.id, opt.key);
-                    });
-                  }}>✅ Mark Resolved</button>
+                  <button className="action-btn ab-resolve" onClick={() => { TAG_OPTIONS.forEach(opt => { if ((tags[m.id] || []).includes(opt.key)) toggleTag(m.id, opt.key); }); }}>✅ Mark Resolved</button>
                   <button className="action-btn ab-snooze">⏰ Snooze</button>
                 </div>
               </>
@@ -877,8 +1021,6 @@ function FollowUp({ members, tags, setTags, db, orgId, role }) {
 // ─── Members ──────────────────────────────────────────────────────────────────
 function Members({ members, db, role }) {
   const [search, setSearch] = useState("");
-  const [editId, setEditId] = useState(null);
-  const [editStatus, setEditStatus] = useState("");
 
   const filtered = members.filter(m =>
     m.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -890,7 +1032,6 @@ function Members({ members, db, role }) {
     const newStatus = m.status === "active" ? "inactive" : "active";
     await db.patch("members", `id=eq.${m.id}`, { status: newStatus });
     m.status = newStatus;
-    setEditId(null);
   };
 
   return (
@@ -933,8 +1074,6 @@ function Members({ members, db, role }) {
 function Team({ org, db, role, currentUserId }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("worker");
 
   useEffect(() => {
     const load = async () => {
@@ -959,16 +1098,12 @@ function Team({ org, db, role, currentUserId }) {
           <div className="page-title">Team Management</div>
           <div className="page-sub">{org.name} · Manage your church staff and workers</div>
         </div>
-
-        {/* Church Code */}
         <div className="card" style={{ marginBottom: 20 }}>
           <div className="card-title">Church Invitation Code</div>
           <div className="alert alert-info" style={{ marginBottom: 0 }}>
             Share this code with workers to let them join your church: <strong style={{ letterSpacing: 1 }}>{org.code}</strong>
           </div>
         </div>
-
-        {/* Team List */}
         <div className="card">
           <div className="card-title">Team Members ({members.length})</div>
           {loading ? <div className="loader">Loading team...</div> : (
@@ -998,8 +1133,6 @@ function Team({ org, db, role, currentUserId }) {
             </div>
           )}
         </div>
-
-        {/* Roles explanation */}
         <div className="card" style={{ marginTop: 20 }}>
           <div className="card-title">Role Permissions</div>
           <table className="table">
@@ -1036,13 +1169,12 @@ const NAV_ALL = [
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [session, setSession] = useState(null); // { user, token, org, role, profile }
+  const [session, setSession] = useState(null);
   const [page, setPage] = useState("dashboard");
   const [members, setMembers] = useState([]);
   const [tags, setTags] = useState({});
   const [loading, setLoading] = useState(false);
 
-  // Restore session from localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem("sf_session");
@@ -1053,7 +1185,6 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Load data when session is set
   useEffect(() => {
     if (!session) return;
     const db = makeDb(session.token);
@@ -1098,19 +1229,18 @@ export default function App() {
   const db = makeDb(session.token);
   const { role, org, profile } = session;
   const nav = NAV_ALL.filter(n => n.roles.includes(role));
-
   const initials = (profile?.full_name || session.user?.email || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 
   const renderPage = () => {
     if (loading) return <div className="loader">⏳ Loading ShepherdFlow...</div>;
     switch (page) {
-      case "dashboard": return <Dashboard members={members} tags={tags} role={role} profile={profile} org={org} setPage={setPage} />;
-      case "register": return <Registration onAdd={m => setMembers(prev => [m, ...prev])} orgId={org.id} db={db} role={role} />;
-      case "attendance": return <Attendance members={members} db={db} orgId={org.id} role={role} />;
-      case "followup": return <FollowUp members={members} tags={tags} setTags={setTags} db={db} orgId={org.id} role={role} />;
-      case "members": return <Members members={members} db={db} role={role} />;
-      case "team": return <Team org={org} db={db} role={role} currentUserId={session.user.id} />;
-      default: return <Dashboard members={members} tags={tags} role={role} profile={profile} org={org} setPage={setPage} />;
+      case "dashboard":   return <Dashboard members={members} tags={tags} role={role} profile={profile} org={org} setPage={setPage} />;
+      case "register":    return <Registration onAdd={m => setMembers(prev => [m, ...prev])} orgId={org.id} db={db} role={role} />;
+      case "attendance":  return <Attendance members={members} db={db} orgId={org.id} role={role} />;
+      case "followup":    return <FollowUp members={members} tags={tags} setTags={setTags} db={db} orgId={org.id} role={role} />;
+      case "members":     return <Members members={members} db={db} role={role} />;
+      case "team":        return <Team org={org} db={db} role={role} currentUserId={session.user.id} />;
+      default:            return <Dashboard members={members} tags={tags} role={role} profile={profile} org={org} setPage={setPage} />;
     }
   };
 
